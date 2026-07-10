@@ -1,10 +1,16 @@
+from datetime import timedelta
 import logging
 from typing import Optional
+from uuid import UUID
 
-from app.core.security import get_password_hash, verify_password
-from sqlalchemy import select
+from app.core.config import settings
+from app.models import user
+from langchain_classic.embeddings import awa
+
+from app.core.security import create_access_token, get_password_hash, verify_password
+from sqlalchemy import func, select, update
 from app.models.user import Role, User, UserRoleAssociation
-from app.schemas.user import Token, UserCreate
+from app.schemas.user import Token, UserCreate, UserInDB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -129,7 +135,7 @@ class UserService:
             logger.error(f"通过邮箱{email}获取用户时出错: {e}")
             raise
 
-    async def login_user(self, username_or_email: str, password: str) -> Token:
+    async def login_user(self, username_or_email: str, password: str) -> dict:
         """
         用户登录
         Args:
@@ -144,10 +150,59 @@ class UserService:
         logger.info(f"登录尝试，用户名: {username_or_email}")
         # 认证用户
         user = await self.authenticate(username_or_email, password)
+        if not user:
+            logger.warning(f"登录失败，用户名或密码错误: {username_or_email}")
+            raise ValueError("用户名或密码错误")
+
+        if not user.is_active:
+            logger.warning(f"登录失败，用户未激活: {username_or_email}")
+            raise ValueError("用户未激活")
+
+        logger.info(f"为用户 {user.username} 创建访问令牌")
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": str(user.id)}, expires_delta=access_token_expires
+        )
+        logger.info(f"用户登录成功:{user.username}")
         return {
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
-    async def authenticate(self, username_or_email: str, password: str) -> Optional[User]:
-        
+
+    async def authenticate(
+        self, username_or_email: str, password: str
+    ) -> Optional[User]:
+        """通过用户名或邮箱和密码认证用户
+        Args:
+            username_or_email (str): 用户名或邮箱
+            password (str): 密码
+        Returns:
+            User: 认证成功的用户对象，如果认证失败则返回None
+        """
+        try:
+            user = await self.get_user_by_username(username_or_email)
+            if not user:
+                user = await self.get_user_by_email(username_or_email)
+            if not user:
+                return None
+
+            if not verify_password(password, user.hashed_password):  # type: ignore
+                return None
+
+            await self._update_last_login(user.id)  # type: ignore
+            return user
+        except Exception as e:
+            logger.error(f"认证用户时出错: {e}")
+            raise
+
+    async def _update_last_login(self, userid: UUID) -> None:
+        """更新用户的最后登录时间"""
+        try:
+            query = update(User).where(User.id == userid).values(last_login=func.now())
+            await self.db.execute(query)
+            await self.db.commit()
+
+        except Exception as e:
+            logger.error(f"更新用户 {userid} 的最后登录时间时出错: {e}")
+            raise
