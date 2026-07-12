@@ -1,6 +1,6 @@
 from datetime import timedelta
 import logging
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 from app.core.config import settings
@@ -8,7 +8,7 @@ from app.models import user
 from langchain_classic.embeddings import awa
 
 from app.core.security import create_access_token, get_password_hash, verify_password
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, update,desc,asc
 from app.models.user import Role, User, UserRoleAssociation
 from app.schemas.user import Token, UserCreate, UserInDB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -205,4 +205,134 @@ class UserService:
 
         except Exception as e:
             logger.error(f"更新用户 {userid} 的最后登录时间时出错: {e}")
+            raise
+    async def refresh_token(self,user_id:str)->dict:
+        """
+            刷新用户访问令牌
+
+            Args:
+                user_id: 用户ID
+
+            Returns:
+                包含新访问令牌的字典
+            """
+        from app.core.config import settings
+        from datetime import timedelta
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": str(user_id)}, expires_delta=access_token_expires
+        )
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        }
+
+    async def get_user_by_id(self, user_id: str) -> Optional[User]:
+        """
+        通过ID获取用户（兼容字符串ID）
+
+        Args:
+            user_id: 用户ID（字符串或UUID）
+
+        Returns:
+            用户对象或None
+        """
+        try:
+            from uuid import UUID
+            if isinstance(user_id, str):
+                user_id = UUID(user_id)
+            return await self.get_user(user_id)
+        except Exception as e:
+            logger.error(f"通过ID获取用户时出错: {e}")
+            return None
+    async  def get_user(self,user_id:UUID)->User:
+        """
+        获取用户
+        Args:
+            user_id (UUID): 用户ID
+        Returns:
+            User: 用户对象
+        """
+        query = select(User).where(User.id == user_id)
+        result=await self.db.execute(query)
+        return result.scalar_one_or_none()
+    async  def get_user_with_roles(self,user_id:str)->dict:
+        """
+        获取用户及其角色
+        Args:
+            user_id (str): 用户ID
+        Returns:
+            User: 包含用户和角色的User对象
+        """
+        import  logging
+        logger=logging.getLogger(__name__)
+        logger.info(f"正在获取用户 {user_id} 及其角色")
+        try:
+            # 获取用户信息
+            user = await self.get_user_by_id(user_id)
+            if not user:
+                raise ValueError("用户不存在")
+            # 获取角色信息
+            role_service = RoleService(self.db)
+            roles = await role_service.list_user_roles(user.id)
+            return {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "department": user.department,
+                "position": user.position,
+                "employee_id": user.employee_id,
+                "role": user.role,
+                "is_superuser": user.is_superuser,
+                "is_verified": user.is_verified,
+                "is_active": user.is_active,
+                "bio": user.bio,
+                "avatar_url": user.avatar_url,
+                "last_login": user.last_login,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+                "roles": [
+                    {
+                        "id": r.id,
+                        "name": r.name,
+                        "description": r.description,
+                        "is_builtin": r.is_builtin,
+                        "created_at": r.created_at,
+                        "updated_at": r.updated_at,
+                    }
+                    for r in roles
+                ],
+            }
+        except Exception as e:
+            logger.error(f"❌ 获取用户信息时出错: {e}")
+            raise
+
+class RoleService:
+    """
+    角色服务类
+    """
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_user_roles(self, user_id: str) -> List[Role]:
+        """
+        获取用户角色列表
+        Args:
+            user_id (str): 用户ID
+        Returns:
+            List[Role]: 用户角色列表
+        """
+        try:
+            query = (
+                select(Role)
+                .join(UserRoleAssociation, Role.id == UserRoleAssociation.role_id)
+                .where(UserRoleAssociation.user_id == user_id,Role.is_active==True).order_by(desc(Role.created_at))
+            )
+            result = await self.db.execute(query)
+            return result.scalars().all()
+        except Exception as e:
+            logger.error(f"获取用户角色列表时出错: {e}")
             raise

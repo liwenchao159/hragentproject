@@ -1,6 +1,8 @@
 from typing import Any
 
 from fastapi.security import OAuth2PasswordRequestForm
+
+from app.api.deps import get_current_user
 from app.service.user_service import UserService
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.schemas.user import Token, User as UserSchema, UserCreate
@@ -40,3 +42,25 @@ async def loin(
             )
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/refresh",response_model=Token)
+async def refresh_token(
+        current_user:UserSchema=Depends(get_current_user),
+        db:AsyncSession=Depends(get_db)
+):
+    """刷新令牌"""
+    user_service=UserService(db)
+    return await user_service.refresh_token(current_user.id)
+
+
+@router.get("/me")
+async def get_current_user_info(
+    current_user: UserSchema = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    获取当前用户信息
+    """
+    user_service = UserService(db)
+    return await user_service.get_user_with_roles(str(current_user.id))
