@@ -1,4 +1,4 @@
-from app.api.v1.endpoints import auth, stats,users,conversations,job_description,resume_evaluation
+from app.api.v1.endpoints import auth, stats,users,conversations,job_description,resume_evaluation,hr_workflows
 import app.api.v1.endpoints.intent_router as intent_router
 from fastapi import APIRouter
 
@@ -10,6 +10,7 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 api_router.include_router(job_description.router, prefix="/job-descriptions", tags=["job-descriptions"])
 api_router.include_router(resume_evaluation.router, prefix="/resume-evaluation", tags=["resume-evaluation"])
+api_router.include_router(hr_workflows.router, prefix="/hr-workflows", tags=["hr-workflows"])
 
 @api_router.get("/health")
 async def health_check():
