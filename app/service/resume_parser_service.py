@@ -72,3 +72,87 @@ class ResumeParserService:
         except Exception as e:
             logger.error(f"提取文件内容失败:{e}")
             raise Exception(f"文件解析失败:{e}")
+
+    """从上下文中提取文本"""
+
+    async def _extract_from_txt(self, file_content: bytes) -> str:
+        try:
+            encodings = ["utf-8", "utf-16", "gbk", "gb2312", "big5", "latin-1"]
+            for encoding in encodings:
+                try:
+                    return file_content.decode(encoding)
+                except UnicodeDecodeError:
+                    continue
+            return file_content.decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.error(f"txt文件解析失败:{e}")
+            raise
+
+    """
+    从PDF文件提取文本
+    """
+
+    async def _extract_from_pdf(self, file_content: bytes) -> str:
+        try:
+            import PyPDF2
+            import io
+
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+            text_content = []
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_content.append(page_text)
+            return "\n".join(text_content)
+        except ImportError:
+            try:
+                import pdfplumber
+                import io
+
+                with pdfplumber.open(io.BytesIO(file_content)) as pdf:
+                    text_content = []
+                    for page in pdf.pages:
+                        text = page.extract_text()
+                        if text:
+                            text_content.append(text)
+                    return "\n".join(text_content)
+            except ImportError:
+                logger.error("PDF解析库未安装，请安装 PyPDF2 或 pdfplumber")
+                raise Exception("PDF解析功能不可用，请联系管理员")
+        except Exception as e:
+            logger.error(f"PDF文件解析失败: {e}")
+            raise Exception(f"PDF文件解析失败: {str(e)}")
+    """从doc文件中提取文件"""
+    async def _extract_from_doc(self,file_content: bytes)->str:
+        try:
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix="doc"
+            ) as temp_file:
+                temp_file.write(file_content)
+                temp_file_path=temp_file.name
+            try:
+                try:
+                    import textract
+                    text_bytes=textract.process(temp_file_path)
+                    decoded=None
+                    for enc in ['utf-8', 'utf-16', 'gbk', 'gb2312', 'big5', 'latin-1']:
+                        try:
+                            decoded = text_bytes.decode(enc)
+                            break
+                        except Exception:
+                            continue
+                    if decoded is None:
+                        decoded = text_bytes.decode('utf-8', errors='ignore')
+                    text = decoded.strip()
+                    if text:
+                        return text                   
+            except ImportError:
+                logger.warning("未安装textract，尝试其他方式解析doc")
+            except Exception as e:
+                logger.warning(f"textract解析doc失败:{e}")
+                
+            try:
+                
+                
+        except Exception as e:
+            
