@@ -1,9 +1,12 @@
+import hashlib
+import mimetypes
 import os
 import tempfile
 from typing import Tuple
 import logging
 
 from app.utils.file_utils import get_file_mime_type
+from app.utils.text_utils import extract_text_content
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,24 @@ class ResumeParserService:
             )
         return True, "文件验证通过"
 
-    async def extract_Text_from_file(self, file_content: bytes, filename: str) -> str:
+    """获取文件的基本信息
+
+    """
+
+    def get_file_info(self, filename: str, file_content: bytes) -> dict:
+        """获取文件的基本信息"""
+        file_size = len(file_content)
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        _, ext = os.path.splitext(filename)
+        return {
+            "filename": filename,
+            "file_type": ext.lstrip("."),
+            "file_size": file_size,
+            "file_hash": file_hash,
+            "mime_type": mimetypes.guess_type(filename)[0],
+        }
+
+    async def extract_text_from_file(self, file_content: bytes, filename: str) -> str:
         try:
             mime_type = get_file_mime_type(filename)
             with tempfile.NamedTemporaryFile(
@@ -52,5 +72,3 @@ class ResumeParserService:
         except Exception as e:
             logger.error(f"提取文件内容失败:{e}")
             raise Exception(f"文件解析失败:{e}")
-async def extract_text_content(temp_path:str,mime_type:str)->str:
-    

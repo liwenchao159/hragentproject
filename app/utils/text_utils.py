@@ -33,7 +33,7 @@ async def extract_text_content(file_path: str, mime_type: str) -> str:
             text = ""
             try:
                 import PyPDF2
-            except:
+            except Exception as e:
                 logger.error(f"PyPDF2不可用于PDF提取: {e}")
                 return ""
             with open(file_path, "rb") as f:
@@ -81,9 +81,16 @@ async def extract_text_content(file_path: str, mime_type: str) -> str:
                     return "\n".join(parts).strip()
                 except Exception as e:
                     logger.error(f"python-docx提取内容失败{e}")
-        else:
+                    return ""
+            # .doc旧格式：此处不支持，需要外部工具
+            logger.warning(
+                f"Unsupported .doc format for direct extraction: {mime_type}"
+            )
+            return ""
 
+        else:
             logger.warning(f"不支持的文件类型: {mime_type}")
             return ""
     except Exception as e:
         logger.error(f"从{file_path}提取文件时出错")
+        return ""

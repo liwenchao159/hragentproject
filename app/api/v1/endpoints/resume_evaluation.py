@@ -5,6 +5,7 @@ from app.api.deps import get_current_user
 
 from app.core.database import get_db
 from app.schemas.resume_evaluation import ResumeEvaluationListResponse
+from app.service.resume_evaluation import ResumeEvaluationService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,9 +27,8 @@ async def get_evaluation_history(
     - **status**: 状态过滤(pending,rejected,interview)
     """
     try:
-        
+        evaluation_service = ResumeEvaluationService(db)
+
     except ValueError as e:
         logger.warning(f"获取评价历史参数错误:{e}")
-        raise HTTPException(status_code=400,detail=str(e))
-    
-        
+        raise HTTPException(status_code=400, detail=str(e))
