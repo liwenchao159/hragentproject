@@ -145,14 +145,112 @@ class ResumeParserService:
                         decoded = text_bytes.decode('utf-8', errors='ignore')
                     text = decoded.strip()
                     if text:
-                        return text                   
-            except ImportError:
-                logger.warning("未安装textract，尝试其他方式解析doc")
-            except Exception as e:
-                logger.warning(f"textract解析doc失败:{e}")
-                
-            try:
-                
-                
+                        return text
+                except ImportError:
+                    logger.warning("未安装textract，尝试其他方式解析doc")
+                except Exception as e:
+                    logger.warning(f"textract解析doc失败:{e}")
+                try:
+                     import win32com.client
+                     word=win32com.client.Dispatch("Word.Application")
+                     word.Visible=False
+                     # 保存为临时txt
+                     temp_txt_path = temp_file_path + ".txt"
+                     wdFormatText = 2
+                     doc = word.Documents.Open(temp_file_path)
+                     doc.SaveAs(temp_txt_path, FileFormat=wdFormatText)
+                     doc.Close(False)
+                     word.Quit()
+                     # 读取时尝试多编码，避免中文乱码
+                     # 读取时尝试多编码，避免中文乱码
+                     text = None
+                     for enc in ['utf-8', 'utf-16', 'gbk', 'gb2312', 'big5', 'latin-1']:
+                         try:
+                             with open(temp_txt_path, "r", encoding=enc) as f:
+                                 content = f.read().strip()
+                                 if content:
+                                     text = content
+                                     break
+                         except UnicodeDecodeError:
+                             continue
+                         except Exception:
+                             continue
+                     if text is None:
+                         with open(temp_txt_path, "r", encoding="utf-8", errors="ignore") as f:
+                             text = f.read().strip()
+                     os.unlink(temp_txt_path)
+                     if text:
+                         return text
+
+                except ImportError:
+                    logger.warning("未安装pywin32，跳过Word COM方式")
+                except Exception as e:
+                    logger.warning(f"Word COM方式解析DOC失败: {e}")
+                # 如果系统安装了 antiword，尝试调用（强制UTF-8输出）
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["antiword", "-m", "UTF-8", temp_file_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False
+                    )
+                    # 先按多编码尝试解码stdout
+                    text = None
+                    for enc in ['utf-8', 'utf-16', 'gbk', 'gb2312', 'big5', 'latin-1']:
+                        try:
+                            text = result.stdout.decode(enc).strip()
+                            if text:
+                                break
+                        except Exception:
+                            continue
+                    if text is None:
+                        text = result.stdout.decode('utf-8', errors='ignore').strip()
+                    if result.returncode == 0 and text:
+                        return text
+                    else:
+                        logger.warning(f"antiword解析失败: {result.stderr.decode('utf-8', errors='ignore')}")
+                except Exception as e:
+                    logger.warning(f"调用antiword解析DOC失败: {e}")
+
+                # 所有方式失败
+                raise Exception("DOC文件解析失败：缺少可用的解析器，请安装textract或pywin32/antiword")
+
+            finally:
+                os.unlink(temp_file_path)
+
         except Exception as e:
-            
+            logger.error(f"DOC文件解析失败: {e}")
+            raise Exception(f"DOC文件解析失败: {str(e)}")
+
+    async def _extract_from_docx(self, file_content: bytes) -> str:
+        """从DOCX文件提取文本"""
+        try:
+            from docx import Document
+            import io
+
+            # 从字节流创建Document对象
+            doc = Document(io.BytesIO(file_content))
+
+            # 提取所有段落的文本
+            text_content = []
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text_content.append(paragraph.text)
+
+            # 提取表格中的文本
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if cell.text.strip():
+                            text_content.append(cell.text)
+
+            return '\n'.join(text_content)
+
+        except ImportError:
+            logger.error("DOCX解析库未安装，请安装 python-docx")
+            raise Exception("DOCX文件解析功能不可用，请联系管理员")
+
+        except Exception as e:
+            logger.error(f"DOCX文件解析失败: {e}")
+            raise Exception(f"DOCX文件解析失败: {str(e)}")
