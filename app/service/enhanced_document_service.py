@@ -4,6 +4,8 @@ import os.path
 import tempfile
 from typing import Optional, List, BinaryIO, Dict, Any
 from uuid import UUID
+
+from langchain_community.vectorstores import PGVector
 from langchain_core.documents import Document as LangChainDocument
 from fastapi import  UploadFile
 from sqlalchemy import select, text
@@ -233,6 +235,12 @@ class EnhancedDocumentService(BaseDocumentService):
                     "collection_name": chunks_collection
                 }
             )
+            langchain_docs.append(doc)
+
+        # 获取向量存储
+        vector_store=PGVector(
+            connection=self.connection_string
+        )
 
     async def _split_text(self, extract_content):
         """主分割流程：使用 LLM 分割点 + 切分 + 长度约束"""
