@@ -5,7 +5,7 @@ import tempfile
 from typing import Optional, List, BinaryIO, Dict, Any
 from uuid import UUID
 
-from langchain_community.vectorstores import PGVector
+from langchain_postgres import PGVector
 from langchain_core.documents import Document as LangChainDocument
 from fastapi import  UploadFile
 from sqlalchemy import select, text
@@ -13,18 +13,27 @@ from sqlalchemy import select, text
 from app.core import logging
 from app.core.config import settings
 from app.models import Document
+from app.service.embedding_service import get_embedding_service
 from app.service.lightweight_document_service import BaseDocumentService
 from app.service.llm_service import LLMService
 from app.utils.text_utils import extract_text_content
 
 logger = logging.getLogger(__name__)
 
-
 class EnhancedDocumentService(BaseDocumentService):
     def __init__(self, db):
         super().__init__(db)
         self.db = db
         self.llm_service = LLMService()
+        # PGVector数据库连接字符串（使用psycopg2进行同步连接）
+        self.connection_string = settings.DATABASE_URL
+
+        logger.info("增强文档服务已使用共享嵌入服务初始化")
+        self.embedding_service=get_embedding_service()
+        self.embedding=self.embedding_service.get_embeddings()
+        self.text_spliter=self.embedding_service.get_text_splitter()
+
+
 
     async def upload_document(self, file: UploadFile,
                               user_id: UUID, category: Optional[str] = None, tags: Optional[List[Optional[str]]] = None,
@@ -200,6 +209,17 @@ class EnhancedDocumentService(BaseDocumentService):
             document.extracted_content = extract_content
             if extract_content:
                 await self._create_document_chunks_with_pgvector(document, extract_content)
+            await self.db.commit()
+            await self.db.refresh(document)
+            logger.info(f"文档处理成功:{document.id}")
+            return document
+        except Exception as e:
+            logger.error(f"处理文档时出错:{e}")
+            await self.db.rollback()
+            raise
+        finally:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
     async def _save_temp_file(self, file_content, filename):
         """创建临时文件"""
@@ -239,8 +259,28 @@ class EnhancedDocumentService(BaseDocumentService):
 
         # 获取向量存储
         vector_store=PGVector(
-            connection=self.connection_string
+            connection=self.connection_string,
+            collection_name=chunks_collection,
+            embeddings=self.embedding,
+            use_jsonb=True
         )
+        logger.info(
+            f"正在向PGVector集合 {chunks_collection} 添加 {len(langchain_docs)} 个文档块"
+        )
+        try:
+            vector_store.add_documents(langchain_docs)
+            logger.info(
+                f"成功向PGVector集合 {chunks_collection} 添加了 {len(langchain_docs)} 个文档块"
+            )
+            logger.info(
+                f"为文档 {document.id} 创建了 {len(text_chunks)} 个块"
+            )
+        except Exception as e:
+            logger.error(f"向PGVector集合 {chunks_collection} 添加文档块时出错:{e}")
+            raise
+
+
+
 
     async def _split_text(self, extract_content):
         """主分割流程：使用 LLM 分割点 + 切分 + 长度约束"""
