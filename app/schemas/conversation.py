@@ -50,7 +50,7 @@ class Conversation(ConversationInDB):
 class MessageBase(BaseModel):
     """基础消息模式"""
     model_config = {"protected_namespaces": ()}
-
+    
     content: str = Field(..., min_length=1, description="消息内容")
     role: MessageRole = Field(..., description="消息角色")
     model_name: Optional[str] = Field(None, description="模型名称")
