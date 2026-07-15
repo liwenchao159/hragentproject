@@ -10,7 +10,7 @@ from langchain_core.documents import Document as LangChainDocument
 from fastapi import  UploadFile
 from sqlalchemy import select, text
 
-from app.core import logging
+import logging
 from app.core.config import settings
 from app.models import Document
 from app.service.embedding_service import get_embedding_service

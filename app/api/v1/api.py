@@ -1,5 +1,4 @@
-from app.api.v1.endpoints import auth, stats, users, conversations, job_description, resume_evaluation, hr_workflows, \
-    knowledge_base
+from app.api.v1.endpoints import auth, stats, users, conversations, job_description, resume_evaluation, hr_workflows, document, knowledge_base
 import app.api.v1.endpoints.intent_router as intent_router
 from fastapi import APIRouter
 
@@ -12,8 +11,8 @@ api_router.include_router(conversations.router, prefix="/conversations", tags=["
 api_router.include_router(job_description.router, prefix="/job-descriptions", tags=["job-descriptions"])
 api_router.include_router(resume_evaluation.router, prefix="/resume-evaluation", tags=["resume-evaluation"])
 api_router.include_router(hr_workflows.router, prefix="/hr-workflows", tags=["hr-workflows"])
-api_router.include_router(knowledge_base.router, prefix="/knowledgebase", tags=["knowledgebase"])
-
+api_router.include_router(knowledge_base.router, prefix="/knowledge-base", tags=["knowledge-base"])
+api_router.include_router(document.router, prefix="/documents", tags=["documents"])
 @api_router.get("/health")
 async def health_check():
     """健康检查端点"""

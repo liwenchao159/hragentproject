@@ -4,8 +4,8 @@ from uuid import UUID
 from fastapi import HTTPException,status
 from sqlalchemy import select
 
+import logging
 
-from app.core import logging
 from app.schemas.user import User as UserSchema
 from app.models.document import Document
 
@@ -87,7 +87,7 @@ class BaseDocumentService:
                 detail=f"{operation}时出错: {error_message}"
             )
 
-class LightweighDocumentService(BaseDocumentService):
+class LightweightDocumentService(BaseDocumentService):
 
     def __init__(self, db):
         self.db = db

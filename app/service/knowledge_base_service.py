@@ -5,7 +5,7 @@ from fastapi import HTTPException,status
 from sqlalchemy import select, desc, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import logging
+import logging
 from app.models import KnowledgeBase, Document
 from app.models.knowledge_base import FAQ
 from app.models.knowledge_base import KnowledgeBase

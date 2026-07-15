@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.knowledge_base import KnowledgeBase as KnowledgeBaseSchema, KnowledgeBaseCreate, KnowledgeBaseUpdate
 from app.schemas.user import User as UserSchema
-from app.services.knowledge_base_service import KnowledgeBaseEndpointService
+from app.service.knowledge_base_service import KnowledgeBaseEndPointService
 from app.api.deps import get_current_user, get_current_admin_by_role
 import logging
 
@@ -27,7 +27,7 @@ async def get_knowledge_bases(
     """
     获取知识库列表
     """
-    service = KnowledgeBaseEndpointService(db)
+    service = KnowledgeBaseEndPointService(db)
 
     try:
         knowledge_bases = await service.get_accessible_knowledge_bases(
@@ -37,7 +37,7 @@ async def get_knowledge_bases(
         )
 
         # 为每个知识库更新文档数量
-        from app.services.knowledge_base_service import KnowledgeBaseService
+        from app.service.knowledge_base_service import KnowledgeBaseService
         kb_service = KnowledgeBaseService(db)
         for kb in knowledge_bases:
             try:
@@ -67,7 +67,7 @@ async def create_knowledge_base(
     """
     创建新的知识库
     """
-    service = KnowledgeBaseEndpointService(db)
+    service = KnowledgeBaseEndPointService(db)
 
     try:
         knowledge_base = await service.create_knowledge_base(kb_data)
@@ -90,7 +90,7 @@ async def update_knowledge_base(
     """
     更新知识库（仅管理员）
     """
-    service = KnowledgeBaseEndpointService(db)
+    service = KnowledgeBaseEndPointService(db)
 
     try:
         updated_kb = await service.update_knowledge_base_with_permission_check(
@@ -118,7 +118,7 @@ async def delete_knowledge_base(
     """
     删除知识库（仅管理员）
     """
-    service = KnowledgeBaseEndpointService(db)
+    service = KnowledgeBaseEndPointService(db)
 
     try:
         result = await service.delete_knowledge_base_with_permission_check(

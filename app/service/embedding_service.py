@@ -10,10 +10,10 @@ from app.service.compatible_embeddings import CompatibleOpenAIEmbeddings
 logger=logging.getLogger(__name__)
 class EmbeddingService:
     """用于生成嵌入向量的服务"""
-    _instance=Optional['EmbeddingService']=None
+    _instance: Optional['EmbeddingService'] = None
     _initialized:bool=False
 
-    def __new__(cls):
+    def __new__(cls)-> 'EmbeddingService':
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
