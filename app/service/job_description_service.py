@@ -239,7 +239,7 @@ class JobDescriptionService:
             deleted_criteria = []
             criteria_failures = []
             try:
-                from app.services.scoring_criteria_service import ScoringCriteriaService
+                from app.service.scoring_criteria_service import ScoringCriteriaService
 
                 scoring_service = ScoringCriteriaService(self.db)
                 criteria_list = await scoring_service.get_scoring_criteria_list(

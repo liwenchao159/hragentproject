@@ -30,8 +30,8 @@ class EmbeddingService:
             model=settings.EMBEDDING_MODEL or "text-embedding-v1"
             self.embeddings=CompatibleOpenAIEmbeddings(api_key=api_key,base_url=base_url,model=model)
             self.text_splitter=RecursiveCharacterTextSplitter(
-                chunk_size=settings.EMBEDDING_CHUNK_SIZE,
-                chunk_overlap=settings.EMBEDDING_CHUNK_OVERLAP,
+                chunk_size=300,
+                chunk_overlap=100,
                 length_function=len,
                 separators=["\n\n","\n"," ",""]
             )

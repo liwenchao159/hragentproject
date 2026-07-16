@@ -7,7 +7,7 @@ from uuid import UUID
 
 from langchain_postgres import PGVector
 from langchain_core.documents import Document as LangChainDocument
-from fastapi import  UploadFile
+from fastapi import UploadFile
 from sqlalchemy import select, text
 
 import logging
@@ -20,6 +20,7 @@ from app.utils.text_utils import extract_text_content
 
 logger = logging.getLogger(__name__)
 
+
 class EnhancedDocumentService(BaseDocumentService):
     def __init__(self, db):
         super().__init__(db)
@@ -29,11 +30,9 @@ class EnhancedDocumentService(BaseDocumentService):
         self.connection_string = settings.DATABASE_URL
 
         logger.info("增强文档服务已使用共享嵌入服务初始化")
-        self.embedding_service=get_embedding_service()
-        self.embedding=self.embedding_service.get_embeddings()
-        self.text_spliter=self.embedding_service.get_text_splitter()
-
-
+        self.embedding_service = get_embedding_service()
+        self.embedding = self.embedding_service.get_embeddings()
+        self.text_spliter = self.embedding_service.get_text_splitter()
 
     async def upload_document(self, file: UploadFile,
                               user_id: UUID, category: Optional[str] = None, tags: Optional[List[Optional[str]]] = None,
@@ -80,6 +79,7 @@ class EnhancedDocumentService(BaseDocumentService):
                 file_path=file_path,
                 file_hash=file_hash,
                 mime_type=mime_type,
+                file_size=len(file_content),
                 extracted_content=None,
                 embedding=None,
                 category=category,
@@ -145,11 +145,14 @@ class EnhancedDocumentService(BaseDocumentService):
             if document.user_id != user_id:
                 raise ValueError("权限被拒绝")
             query = text("""
-                SELECT id,document,cmetadata from  langchain_pg_embedding
+                SELECT id,
+                document,
+                cmetadata 
+                from  langchain_pg_embedding
                 WHERE cmetadata->>'document_id'=:document_id
                 ORDER BY CAST(cmetadata->>'chunk_index' AS INTEGER)
             """)
-            result = await self.db.execute(query, {"document_id": document.id})
+            result = await self.db.execute(query,params= {"document_id": str(document_id)})
             rows = result.fetchall()
             # 格式化块用于响应
             formatted_chunks = []
@@ -237,10 +240,10 @@ class EnhancedDocumentService(BaseDocumentService):
             logger.warning(f"未为文档 {document.id} 提供文本块")
             return
         # 创建带有元数据的langchain文档（内容块）
-        chunks_collection=f"document_chunks_{document.user_id}".replace("-","_")
+        chunks_collection = f"document_chunks_{document.user_id}".replace("-", "_")
         langchain_docs = []
-        for i,chunk_text in text_chunks:
-            doc=LangChainDocument(
+        for i, chunk_text in enumerate(text_chunks):
+            doc = LangChainDocument(
                 page_content=chunk_text,
                 metadata={
                     "document_id": str(document.id),
@@ -258,7 +261,7 @@ class EnhancedDocumentService(BaseDocumentService):
             langchain_docs.append(doc)
 
         # 获取向量存储
-        vector_store=PGVector(
+        vector_store = PGVector(
             connection=self.connection_string,
             collection_name=chunks_collection,
             embeddings=self.embedding,
@@ -278,9 +281,6 @@ class EnhancedDocumentService(BaseDocumentService):
         except Exception as e:
             logger.error(f"向PGVector集合 {chunks_collection} 添加文档块时出错:{e}")
             raise
-
-
-
 
     async def _split_text(self, extract_content):
         """主分割流程：使用 LLM 分割点 + 切分 + 长度约束"""
@@ -443,12 +443,13 @@ class EnhancedDocumentService(BaseDocumentService):
                 merged.append(buf)
                 idx = nxt
             else:
-                sep = "\n" if not cur.endswith("\n") else ""
-                merged.append(cur + sep + chunks[idx + 1])
-                idx += 2
+                if idx + 1 < total:
+                    sep = "\n" if not cur.endswith("\n") else ""
+                    merged.append(cur + sep + chunks[idx + 1])
+                    idx += 2
         return merged
 
-    def _force_split_long_chunk(self, chunk:str)->List[str]:
+    def _force_split_long_chunk(self, chunk: str) -> List[str]:
         """强制分割超长段落（超过1000字符）"""
         max_length = 1000
         chunks = []
@@ -456,7 +457,7 @@ class EnhancedDocumentService(BaseDocumentService):
             lines = chunk.split('\n')
             current_chunk = ""
             for line in lines:
-                if len(current_chunk) + len(line)+1 > max_length:
+                if len(current_chunk) + len(line) + 1 > max_length:
                     if current_chunk:
                         chunks.append(current_chunk)
                     else:
@@ -466,15 +467,10 @@ class EnhancedDocumentService(BaseDocumentService):
                         current_chunk = ""
                 else:
                     if current_chunk:
-                        current_chunk+="\n"+line
+                        current_chunk += "\n" + line
                     else:
-                        current_chunk=line
+                        current_chunk = line
         else:
-            chunks=[chunk[i:i+max_length] for i in range[0,len(chunk),max_length]]
-
+            chunks = [chunk[i:i + max_length] for i in range[0, len(chunk), max_length]]
 
         return chunks
-
-
-
-
