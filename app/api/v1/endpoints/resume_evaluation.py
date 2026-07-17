@@ -14,7 +14,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.resume_evaluation import ResumeEvaluation
 from app.models.user import User
-from app.schemas.resume_evaluation import ExportZipRequest, ResumeEvaluationListResponse
+from app.schemas.email_config import AutoEvaluateRequest
+from app.schemas.resume_evaluation import ExportZipRequest, ResumeEvaluationListResponse, ResumeEvaluationResult
 from app.service.resume_evaluation import ResumeEvaluationService
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,11 +26,11 @@ router = APIRouter()
 
 @router.get("/history", response_model=ResumeEvaluationListResponse)
 async def get_evaluation_history(
-    skip: int = 0,
-    limit: int = 20,
-    status: Optional[str] = None,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+        skip: int = 0,
+        limit: int = 20,
+        status: Optional[str] = None,
+        current_user=Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
 ):
     """
     获取用户的简历评价历史
@@ -62,9 +63,9 @@ async def get_evaluation_history(
 
 @router.post("/export-zip")
 async def export_zip(
-    payload: ExportZipRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+        payload: ExportZipRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
 ):
     """批量导出简历原始附件 ZIP"""
     resume_ids = payload.resume_ids
@@ -173,3 +174,149 @@ async def export_zip(
             "Content-Type": "application/zip",
         },
     )
+
+
+@router.get("/{evaluation_id}", response_model=ResumeEvaluationResult)
+async def get_evaluation_detail(
+        evaluation_id: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    获取特定评价结果的详细信息
+
+    - **evaluation_id**: 评价记录ID
+    """
+    try:
+        eval_uuid = await ResumeEvaluationService.validate_uuid_param(evaluation_id, "评价ID")
+        evaluation_service = ResumeEvaluationService(db)
+        result = await evaluation_service.get_evaluation_detail(evaluation_id=eval_uuid, user_id=current_user.id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="评价记录不存在")
+
+        return ResumeEvaluationResult(**result)
+
+    except ValueError as e:
+        logger.warning(f"获取评价详情参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取评价详情失败: {e}")
+        raise HTTPException(status_code=500, detail="获取评价详情失败")
+
+
+@router.put("/{evaluation_id}/status")
+async def update_resume_status(
+        evaluation_id: str,
+        status: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    更新简历状态
+
+    - **evaluation_id**: 评价记录ID
+    - **status**: 新状态 (pending, rejected, interview)
+    """
+    try:
+        # 验证参数格式
+        eval_uuid = await ResumeEvaluationService.validate_uuid_param(evaluation_id, "评价ID")
+        new_status = await ResumeEvaluationService.validate_status_param(status)
+        evaluation_service = ResumeEvaluationService(db)
+        result = await evaluation_service.update_evaluation_status(
+            evaluation_id=eval_uuid,
+            user_id=current_user.id,
+            new_status=new_status
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="评价记录不存在")
+
+        return result
+
+    except ValueError as e:
+        logger.warning(f"更新简历状态参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新简历状态失败: {e}")
+        raise HTTPException(status_code=500, detail="更新简历状态失败")
+
+@router.get("/supported-formats")
+async def get_supported_formats():
+    """
+    获取支持的文件格式
+    """
+    return await ResumeEvaluationService.get_supported_formats()
+
+@router.delete("/{evaluation_id}")
+async def delete_evaluation(
+    evaluation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    删除评价记录
+
+    - **evaluation_id**: 评价记录ID
+    """
+    try:
+        # 验证evaluation_id格式
+        eval_uuid = await ResumeEvaluationService.validate_uuid_param(evaluation_id, "评价ID")
+
+        evaluation_service = ResumeEvaluationService(db)
+        success = await evaluation_service.delete_evaluation(
+            evaluation_id=eval_uuid,
+            user_id=current_user.id
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="评价记录不存在")
+
+        return {"message": "评价记录已删除"}
+
+    except ValueError as e:
+        logger.warning(f"删除评价记录参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除评价记录失败: {e}")
+        raise HTTPException(status_code=500, detail="删除评价记录失败")
+
+@router.post("/evaluate-auto", response_model=ResumeEvaluationResult)
+async def evaluate_resume_auto(
+    payload: AutoEvaluateRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    接收简历文本字符串，自动匹配最合适的JD并进行AI评分，同时将文本作为附件保存在本地。
+
+    - **resume_text**: 简历文本内容
+    - **subject**: 投递邮件主题（可选，用于辅助匹配JD）
+    - **filename**: 文件名（可选，默认自动生成 .txt 文件名）
+    - **login_name**: 登录用户名（必选）
+    """
+    try:
+        # 调用服务层的文本简历自动评价方法
+        evaluation_service = ResumeEvaluationService(db)
+        result = await evaluation_service.evaluate_resume_text_auto(
+            login_name=payload.login_name,
+            resume_text=payload.resume_text,
+            filename=payload.filename,
+            subject=payload.position or ""
+        )
+
+        return ResumeEvaluationResult(**result)
+
+    except ValueError as e:
+        logger.warning(f"简历评价参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"自动匹配并评价简历失败: {e}")
+        raise HTTPException(status_code=500, detail="自动匹配评价服务暂时不可用")

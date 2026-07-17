@@ -3,15 +3,18 @@ import logging
 import os.path
 import pathlib
 import re
-from typing import Any, Dict, Optional, List
+from datetime import datetime
+from typing import Any, Dict, Optional, List, Tuple
 from uuid import UUID
 
 import aiofiles
 import httpx
+import numpy as np
 from dns.e164 import query
 from sqlalchemy import select, func
 
 from app.core.config import settings
+from app.models import User
 from app.models.resume_evaluation import ResumeStatus, ResumeEvaluation
 from app.schemas.job_description import JobDescriptionResponse
 from app.schemas.resume_evaluation import AIEvaluationResult, EvaluationMetric, ResumeEvaluationResponse, \
@@ -113,6 +116,7 @@ class ResumeEvaluationService:
         except Exception as e:
             logger.error(f"简历评价失败: {e}")
             raise
+
     @staticmethod
     async def validate_status_param(status: Optional[str]) -> Optional[ResumeStatus]:
         """验证参数状态"""
@@ -214,20 +218,21 @@ class ResumeEvaluationService:
                }
                """
 
-    async def _call_dify_evaluation(self, resume_text: str, evaluation_model: str, jd_info: JobDescriptionResponse) ->tuple[AIEvaluationResult, str]:
+    async def _call_dify_evaluation(self, resume_text: str, evaluation_model: str, jd_info: JobDescriptionResponse) -> \
+            tuple[AIEvaluationResult, str]:
         """调用dify api进行简历评价"""
         try:
-            response=await self.dify_service.call_workflow_async(
+            response = await self.dify_service.call_workflow_async(
                 workflow_type=3,
                 query=evaluation_model,
                 additional_inputs={
-                    "jianli":resume_text,
-                    "jobName":jd_info.title
+                    "jianli": resume_text,
+                    "jobName": jd_info.title
                 }
             )
-            ai_result=self._parse_ai_response(response)
-            raw_response=str(response)
-            return ai_result,raw_response
+            ai_result = self._parse_ai_response(response)
+            raw_response = str(response)
+            return ai_result, raw_response
         except Exception as e:
             logger.error(f"调用dify api失败: {e}")
             raise Exception(f"AI评价服务暂时不可用:str{e}")
@@ -252,7 +257,7 @@ class ResumeEvaluationService:
             try:
                 # 尝试直接解析JSON
                 if answer_text.startswith('{') and answer_text.endswith('}'):
-                        result_data = json.loads(answer_text)
+                    result_data = json.loads(answer_text)
                 else:
 
                     if '```json' in answer_text:
@@ -354,20 +359,20 @@ class ResumeEvaluationService:
             logger.error(f"解析AI响应失败: {e}")
             return self._create_default_result(str(e))
 
-    async def _save_uploaded_file_content(self, filename:str, file_content:bytes, user_id:UUID)->str:
+    async def _save_uploaded_file_content(self, filename: str, file_content: bytes, user_id: UUID) -> str:
         try:
-            upload_dir=os.path.join(settings.UPLOAD_DIR,str(user_id))
+            upload_dir = os.path.join(settings.UPLOAD_DIR, str(user_id))
             os.mkdir(upload_dir, exist_ok=True)
-            safe_filename=pathlib.Path(filename).name
-            file_path=os.path.join(upload_dir,safe_filename)
-            counter=1
-            base_name,extension=os.path.splitext(safe_filename)
-            original_file_path=file_path
+            safe_filename = pathlib.Path(filename).name
+            file_path = os.path.join(upload_dir, safe_filename)
+            counter = 1
+            base_name, extension = os.path.splitext(safe_filename)
+            original_file_path = file_path
             while os.path.exists(file_path):
-                new_file=f"{base_name}_{counter}{extension}"
-                file_path=os.path.join(upload_dir,new_file)
-                counter+=1
-            async with aiofiles.open(file_path,mode="wb") as f:
+                new_file = f"{base_name}_{counter}{extension}"
+                file_path = os.path.join(upload_dir, new_file)
+                counter += 1
+            async with aiofiles.open(file_path, mode="wb") as f:
                 await f.write(file_content)
             return file_path
         except Exception as e:
@@ -495,19 +500,21 @@ class ResumeEvaluationService:
             pages=pages
         )
 
-    async  def get_evaluation_history(self,user_id:UUID,skip:int=0,limit:int=20,status:Optional[str]=None)->tuple[List[ResumeEvaluation],int]:
+    async def get_evaluation_history(self, user_id: UUID, skip: int = 0, limit: int = 20,
+                                     status: Optional[str] = None) -> tuple[List[ResumeEvaluation], int]:
         """获取评价历史总记录"""
         try:
-            query=select(ResumeEvaluation).where(ResumeEvaluation.user_id==user_id).order_by(ResumeEvaluation.created_at.desc())
+            query = select(ResumeEvaluation).where(ResumeEvaluation.user_id == user_id).order_by(
+                ResumeEvaluation.created_at.desc())
             if status:
-                query=query.where(ResumeEvaluation.status==status)
+                query = query.where(ResumeEvaluation.status == status)
 
-            count_query=select(func.count()).select_from(query.subquery())
-            count_result=await self.db.execute(count_query)
-            total=count_result.scalar()
-            query=query.offset(skip).limit(limit)
-            result=await self.db.execute(query)
-            evaluations=result.scalars().all()
+            count_query = select(func.count()).select_from(query.subquery())
+            count_result = await self.db.execute(count_query)
+            total = count_result.scalar()
+            query = query.offset(skip).limit(limit)
+            result = await self.db.execute(query)
+            evaluations = result.scalars().all()
             logger.info(f"查询到{total}条评价记录")
             if evaluations:
                 logger.info(f"第一个评价记录类型: {type(evaluations[0])}")
@@ -515,7 +522,364 @@ class ResumeEvaluationService:
                     logger.info(f"第一个评价记录ID: {evaluations[0].id}")
                 else:
                     logger.info("第一个评价记录没有id属性")
-            return evaluations,total
+            return evaluations, total
         except Exception as e:
             logger.error(f"获取评价历史失败: {e}")
-            return [],0
+            return [], 0
+
+    @staticmethod
+    async def validate_evluation_params(
+            job_description_id: str,
+            conversation_id: Optional[str] = None
+    ) -> Tuple[UUID, Optional[UUID]]:
+
+        try:
+            jd_uuid=UUID(job_description_id)
+        except ValueError:
+            raise ValueError("无效的职位描述ID格式")
+        conv_uuid=None
+        if conversation_id:
+            try:
+                conv_uuid=UUID(conversation_id)
+            except Exception as e :
+                raise ValueError("无效的对话ID格式")
+        return jd_uuid,conv_uuid
+
+    @staticmethod
+    async def validate_uuid_param( evaluation_id:str, param_name):
+        """验证UUID格式参数"""
+        try:
+            return UUID(evaluation_id)
+        except ValueError:
+            raise ValueError(f"无效的{param_name}格式")
+
+    async def get_evaluation_detail(
+        self,
+        evaluation_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """获取评价详情并返回扁平化结果"""
+        evaluation = await self.get_evaluation_by_id(
+            evaluation_id=evaluation_id,
+            user_id=user_id
+        )
+
+        if not evaluation:
+            return None
+        # 获取关联的职位描述信息（保留但不参与返回，避免schema不匹配）
+        jd = await self._get_job_description(evaluation.job_description_id, user_id)
+
+        # 构建扁平化的结果，符合 ResumeEvaluationResult schema
+        result = {
+            "id": evaluation.id,
+            "evaluation_metrics": evaluation.evaluation_metrics,
+            "total_score": evaluation.total_score,
+            "name": evaluation.candidate_name,
+            "position": evaluation.candidate_position,
+            "workYears": evaluation.work_years,
+            "education": evaluation.education_level,
+            "age": evaluation.candidate_age,
+            "sex": evaluation.candidate_gender,
+            "school": evaluation.school,
+            "resume_content": evaluation.resume_content,
+            "original_filename": evaluation.original_filename,
+            "created_at": evaluation.created_at.isoformat(),
+            "updated_at": evaluation.updated_at.isoformat()
+        }
+
+        return result
+
+    async def get_evaluation_by_id(self, evaluation_id, user_id)->Optional[ResumeEvaluation]:
+
+       try:
+           result =await self.db.execute(select(ResumeEvaluation).where(ResumeEvaluation.id==evaluation_id,ResumeEvaluation.user_id == user_id))
+
+           return result.scalar_one_or_none()
+       except Exception as e:
+           logger.error(f"获取评价结果失败:{e}")
+           return None
+
+    async def update_evaluation_status(
+            self,
+            evaluation_id: UUID,
+            user_id: UUID,
+            new_status: ResumeStatus
+    ) -> Optional[Dict[str, Any]]:
+        """更新评价状态"""
+        try:
+            evaluation = await self.get_evaluation_by_id(
+                evaluation_id=evaluation_id,
+                user_id=user_id
+            )
+
+            if not evaluation:
+                return None
+
+            # 更新状态
+            evaluation.status = new_status
+            await self.db.commit()
+
+            return {
+                "message": "状态更新成功",
+                "evaluation_id": str(evaluation.id),
+                "status": new_status.value
+            }
+
+        except Exception as e:
+            logger.error(f"更新简历状态失败: {e}")
+            await self.db.rollback()
+            raise
+
+    async def evaluate_resume_text_auto(
+        self,
+        login_name: str,
+        resume_text: str,
+        filename: Optional[str] = None,
+        subject: str = ""
+    ) -> Dict[str, Any]:
+        """
+        处理文本简历的自动评价流程
+
+        Args:
+            login_name: 用户登录名
+            resume_text: 简历文本内容
+            filename: 文件名（可选）
+            subject: 投递邮件主题（可选）
+
+        Returns:
+            评价结果字典
+        """
+        # 验证用户是否存在
+        if not login_name:
+            raise ValueError("login_name不能为空")
+
+        users = await self.db.execute(select(User).where(User.username == login_name))
+        user = users.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"用户{login_name}不存在")
+        user_id = user.id
+
+        # 验证简历文本
+        resume_text = (resume_text or "").strip()
+        if not resume_text:
+            raise ValueError("简历文本内容不能为空")
+            # 生成或使用提供的文件名
+        safe_default_name = f"resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filename = (filename or safe_default_name).strip() or safe_default_name
+        # 简单清理可能的非法字符
+        filename = pathlib.Path(filename).name
+        if not filename.lower().endswith('.txt'):
+            filename = f"{filename}.txt"
+
+        # 保存文本为本地附件 uploads/{user_id}/{filename}
+        user_dir = os.path.join(settings.UPLOAD_DIR, str(user_id))
+        os.makedirs(user_dir, exist_ok=True)
+        file_path = os.path.join(user_dir, filename)
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(resume_text.encode("utf-8"))
+            # 调用自动匹配与评分服务
+        result = await self.evaluate_resume_auto(
+                user_id=user_id,
+                file_content=resume_text.encode("utf-8"),
+                filename=filename,
+                subject=subject or ""
+            )
+
+    # 根据简历内容与投递邮件的主题匹配最合适的JD
+    async def evaluate_resume_auto(
+            self,
+            user_id: UUID,
+            file_content: bytes,
+            filename: str,
+            subject: str,
+            email_id: str = None,
+            conversation_id: Optional[UUID] = None
+        ) -> Dict[str, Any]:
+            """无JD输入时，自动匹配最合适的JD并进行评价"""
+            # 解析文本（复用 evaluate_resume 的前置逻辑）
+            is_valid, message = self.resume_parser.validate_file(filename, len(file_content))
+            if not is_valid:
+                raise ValueError(message)
+            resume_text = await self.resume_parser.extract_text_from_file(file_content, filename)
+            if not resume_text or not resume_text.strip():
+                raise ValueError("无法从简历中提取有效文本")
+            # 自动匹配 JD
+            #拼接主题与邮件正文
+            logger.info(f"开始自动匹配JD，邮件主题: {subject}")
+            jd_id, jd_owner_user_id = await self._match_best_jd(subject=subject, resume_text= resume_text, create_by=str(user_id))
+            if not jd_id:
+                logger.error(f"未匹配到合适的职位描述，邮件主题: {subject}")
+                raise ValueError("未匹配到合适的职位描述")
+
+    async def _match_best_jd(self, subject:str ,resume_text: str,create_by: str) -> Tuple[Optional[UUID], Optional[UUID]]:
+        """通过大模型服务判断最匹配的JD
+
+               Returns:
+                   (jd_id, jd_owner_user_id) - 匹配的JD ID和该JD所属的用户ID
+               """
+        logger.info(f"开始查询职位描述，create_by: {create_by}")
+        try:
+            # 调用远程服务获取所有JD
+            jds = await self._fetch_jds(UUID(create_by))
+            jd_owner_user_id = UUID(create_by)  # 记录当前JD所属的用户ID
+
+            # 如果当前用户没有JD，尝试查找本地其他用户的JD
+            if not jds:
+                logger.info(f"用户 {create_by} 没有JD，尝试查找其他本地用户的JD")
+                try:
+                    from sqlalchemy import select as sql_select
+                    users_result = await self.db.execute(
+                        sql_select(User).where(User.is_active == True).limit(10)
+                    )
+                    local_users = users_result.scalars().all()
+                    for u in local_users:
+                        if str(u.id) == create_by:
+                            continue
+                        logger.info(f"尝试查询用户 {u.id} 的JD")
+                        jds = await self._fetch_jds(u.id)
+                        if jds:
+                            logger.info(f"从用户 {u.id} 找到 {len(jds)} 个JD")
+                            jd_owner_user_id = u.id
+                            break
+                except Exception as e:
+                    logger.warning(f"查找其他用户JD失败: {e}")
+
+            logger.info(f"查询到 {len(jds)} 个职位描述")
+
+            # 输出所有JD标题用于调试
+            for jd in jds:
+                logger.info(f"JD标题: {jd.title}")
+
+            if not jds:
+                return None, None
+
+            # 新增逻辑：根据邮件主题关键词匹配职位描述
+            # 主题格式：简历-职位名称-姓名
+            if subject and "简历-" in subject:
+                try:
+                    # 解析主题中的职位名称
+                    parts = subject.split("-")
+                    if len(parts) >= 2:
+                        position_name = parts[1].strip()  # 获取职位名称部分
+                        logger.info(f"从邮件主题解析出职位名称: {position_name}")
+
+                        # 在JD列表中查找匹配的职位名称
+                        for jd in jds:
+                            if jd.title:
+                                # 使用更宽松的匹配策略，忽略大小写
+                                jd_title_clean = jd.title.replace(" ", "").replace("-", "").lower()
+                                position_name_clean = position_name.replace(" ", "").replace("-", "").lower()
+
+                                logger.info(f"比较职位名称: '{position_name_clean}' 与 JD标题: '{jd_title_clean}'")
+
+                                # 多种匹配方式
+                                if (position_name_clean in jd_title_clean or
+                                        jd_title_clean in position_name_clean):
+                                    logger.info(f"通过邮件主题匹配到JD: {jd.title}")
+                                    return jd.id, jd_owner_user_id
+
+                        # 如果没有精确匹配，尝试模糊匹配
+                        logger.info("未找到精确匹配，尝试模糊匹配...")
+                        best_match = self._fuzzy_match_jd(position_name, jds)
+                        if best_match:
+                            logger.info(f"通过模糊匹配找到JD: {best_match.title}")
+                            return best_match.id, jd_owner_user_id
+
+                except Exception as e:
+                    logger.error(f"邮件主题解析失败: {e}")
+
+            # 组装简洁的 JD 选项，避免超长提示
+            jd_options = [
+                {
+                    "id": str(jd.id),
+                    "title": jd.title
+                }
+                for jd in jds
+            ]
+            # 构造提示词
+            prompt = (
+                "你是一个职位匹配助手。"
+                "1、如果候选人投递邮件的主题中包括了他要投递的岗位，则直接根据主题subject从给定的JD列表中选择最匹配的一项，匹配到直接输出jd id，不需要再根据简历内容匹配。若没有匹配到，则直接输出None"
+                "2、如果投递邮件主题中没有要投递的岗位，则从候选人的简历内容，去从给定的JD列表中选择最匹配的一项。如果没有匹配到合适的岗位，则直接输出None"
+                "输出要求：不要给出匹配理由，直接输出jd id的值,或者None"
+            )
+            try:
+                # 使用通用 LLM 服务进行匹配，而不是 Dify 工作流
+                import json as _json
+                jd_compact = _json.dumps(jd_options, ensure_ascii=False)[:12000]
+                llm_input = (
+                    f"{prompt}\n\n候选人投递邮件主题：{subject}\n\n候选人简历：\n{resume_text[:8000]}\n\nJD列表(JSON)：\n{jd_compact}\n\n"
+                    " "
+                )
+                jd_id_str = await self.llm_service.generate_response(message=llm_input)
+                print(f"LLM JD匹配结果：{jd_id_str}")
+                if not jd_id_str:
+                    raise ValueError("匹配结果不包含jd_id")
+                # 返回UUID
+                for jd in jds:
+                    if str(jd.id) in jd_id_str:
+                        print(f"LLM JD匹配成功：{jd.title}")
+                        return jd.id, jd_owner_user_id
+                return None, None
+            except Exception as e:
+                logger.error(f"LLM JD匹配失败，回退关键词匹配: {e}")
+                # 回退：按关键词匹配（简单匹配）
+                keywords = ["Java", "Python", "前端", "后端", "AI", "算法", "产品", "测试"]
+                scores = []
+                lower_text = resume_text.lower()
+                for jd in jds:
+                    agg = " ".join([jd.title or "", jd.requirements or "", jd.skills or ""]).lower()
+                    score = sum(1 for kw in keywords if kw.lower() in lower_text and kw.lower() in agg)
+                    scores.append(score)
+                best_idx = int(np.argmax(scores)) if scores else 0
+                return (jds[best_idx].id, jd_owner_user_id) if jds else (None, None)
+        except Exception as e:
+            logger.error(f"获取所有JD失败: {e}")
+            return None, None
+
+
+
+    async def _fetch_jds(self, user_id):
+        """从远程服务获取指定用户的JD列表"""
+        result_data = await remote_service_client.get(
+            endpoint="job-descriptions/",
+            user_id=user_id,
+            additional_params={"page": 1, "size": 100}
+        )
+        jd_items = result_data.get("items", [])
+        return [JobDescriptionResponse(**jd_data) for jd_data in jd_items]
+
+    def _fuzzy_match_jd(self, position_name, jds):
+        """模糊匹配职位描述"""
+        if not position_name or not jds:
+            return None
+
+        position_name_clean = position_name.replace(" ", "").replace("-", "").lower()
+        logger.info(f"开始模糊匹配职位名称: {position_name_clean}")
+
+        # 尝试多种匹配方式
+        for jd in jds:
+            if jd.title:
+                jd_title_clean = jd.title.replace(" ", "").replace("-", "").lower()
+                logger.info(f"比较职位名称: '{position_name_clean}' 与 JD标题: '{jd_title_clean}'")
+
+                # 1. 直接包含关系
+                if position_name_clean in jd_title_clean or jd_title_clean in position_name_clean:
+                    logger.info(f"模糊匹配成功: {position_name} 匹配到 {jd.title}")
+                    return jd
+
+                # 2. 关键词匹配
+                position_keywords = set(position_name_clean)
+                jd_keywords = set(jd_title_clean)
+
+                # 如果有超过30%的字符重叠，认为匹配（降低阈值）
+                union_len = len(position_keywords | jd_keywords)
+                if union_len > 0:
+                    overlap_ratio = len(position_keywords & jd_keywords) / union_len
+                    logger.info(f"关键词重叠比例: {overlap_ratio}")
+                    if overlap_ratio > 0.3:
+                        logger.info(f"通过关键词匹配成功: {position_name} 匹配到 {jd.title}")
+                        return jd
+
+        return None
+
