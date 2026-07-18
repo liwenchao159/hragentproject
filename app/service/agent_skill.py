@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Any
 
+from aiohttp.web_routedef import route
+
 logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class SkillMetadata:
@@ -119,22 +121,39 @@ def parse_skill_manifest(skill_dir:Path)->Optional[SkillMetadata]:
     except json.decoder.JSONDecodeError as exc:
         logger.warning("skill manifest 解析失败:%s",exc)
         return None
+    name = str(data.get("name") or skill_dir.name).strip()
+    intent=str(data.get("intent") or "").strip()
+    route=str(data.get("route") or "").strip()
+    phases=tuple(str(item).strip() for item in data.get("phases") or [] if str(item).strip())
+    prerequisites=tuple(str(item).strip() for item in data.get("prerequisites") or [] if str(item).strip())
+
+    description=str(data.get("description") or "").strip()
 
 
 
-def build_skill_bundle_from_directory(skill_dir):
+
+def build_skill_bundle_from_directory(skill_dir)-> None:
     metadata=parse_skill_manifest(skill_dir)
+    if not metadata:
+        return None
+    phases:dict[str:ScriptedSkillPhase]={}
+    for phases in metadata.phases:
+
+
 
 
 
 def build_default_skill_dispatcher(
         skill_root: Optional[Path] = None
-) -> AgentSkillDispatcher:
+) -> AgentSkillDispatcher | None:
     root = Path(skill_root) if skill_root else Path(__file__).resolve().parent[2] / "skills"
     bundles: dict[str, AgentSkillBundle] = {}
     if not root.exists():
         return AgentSkillDispatcher(bundles)
     for skill_dir in sorted(path for path in root.iterdir() if path.is_dir()):
         bundle = build_skill_bundle_from_directory(skill_dir)
+        if not  bundle:
+            continue
+        bundles[bundle.intent] = bundle
 
 
