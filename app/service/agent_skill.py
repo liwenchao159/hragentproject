@@ -126,6 +126,7 @@ def parse_skill_manifest(skill_dir:Path)->Optional[SkillMetadata]:
     route=str(data.get("route") or "").strip()
     phases=tuple(str(item).strip() for item in data.get("phases") or [] if str(item).strip())
     prerequisites=tuple(str(item).strip() for item in data.get("prerequisites") or [] if str(item).strip())
+    default_phase=str(data.get("default_phase") or "")
 
     description=str(data.get("description") or "").strip()
 
