@@ -16,11 +16,11 @@ logger=logging.getLogger(__name__)
 
 router=APIRouter()
 
-@router("/chat/stream")
+@router.post("/chat/stream")
 async def stream_chat_with_agent(
     request: AgentChatRequest,
     current_user: UserSchema = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db)
 ) -> Any:
     """流式处理 HR Agent 自然语言任务"""
 

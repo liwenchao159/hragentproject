@@ -1,5 +1,5 @@
 from app.api.v1.endpoints import auth, stats, users, conversations, job_description, resume_evaluation, hr_workflows, document, knowledge_base,knowledge_assistant,scoring_criteria
-from app.api.v1.endpoints import interview_plan,exam_management
+from app.api.v1.endpoints import interview_plan,exam_management,agent
 import app.api.v1.endpoints.intent_router as intent_router
 from fastapi import APIRouter
 
@@ -18,6 +18,7 @@ api_router.include_router(knowledge_assistant.router, prefix="/knowledge-assista
 api_router.include_router(scoring_criteria.router, prefix="/scoring-criteria", tags=["scoring-criteria"])
 api_router.include_router(interview_plan.router, prefix="/interview-plans", tags=["interview-plans"])
 api_router.include_router(exam_management.router, prefix="/exam-management", tags=["exam-management"])
+api_router.include_router(agent.router, prefix="/agent", tags=["agent"])
 @api_router.get("/health")
 async def health_check():
     """健康检查端点"""
